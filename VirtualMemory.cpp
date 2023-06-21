@@ -41,7 +41,7 @@ word_t find_empty_frame(word_t frame_address, int depth, int *max_frame_index, u
 //             & ~(~0 << (size_of_mini_address + 1))); //msb
 //    PMread((address_first  * PAGE_SIZE) + current_mini_word, &address_next);
     word_t tmp;
-    word_t return_frame = -1;
+    word_t return_frame = 0;
     *max_frame_index += 1;
     for (int i = 0; i < (1L <<  OFFSET_WIDTH); i++) {
         PMread(frame_address + i, &tmp);
@@ -52,7 +52,7 @@ word_t find_empty_frame(word_t frame_address, int depth, int *max_frame_index, u
         PMwrite(father + childIndex, 0);
         return -1;
     }
-    if (depth >= TABLES_DEPTH) {
+    if (depth > TABLES_DEPTH) {
         uint64_t distance = cyclic_distance(pageByBit, virtualAddressWithoutOffset);
         if (distance < *min_cyclic_distance) {
             *min_cyclic_distance = distance;
@@ -75,7 +75,7 @@ word_t find_empty_frame(word_t frame_address, int depth, int *max_frame_index, u
                                             bitwiseAddTheNewFrameAddressBit(pageByBit, i, depth),
                                             minFrame, 0, pageEvictIndex, frame_address, i);
         }
-        if (return_frame != -1) {
+        if (return_frame != -1 && return_frame != 0) {
             return return_frame;
         }
     }
@@ -96,7 +96,7 @@ int VMread(uint64_t virtualAddress, word_t* value) {
             (virtualAddress >> OFFSET_WIDTH); //msb
 
     word_t address_first = 0;
-    word_t address_next;
+    word_t address_next = 0;
     word_t finish_address;
     word_t minFrame = 0;
     uint64_t pageEvictIndex = 0;
@@ -104,6 +104,7 @@ int VMread(uint64_t virtualAddress, word_t* value) {
     uint64_t min_cyclic_distance = NUM_PAGES;
     uint64_t framesNotEvict[TABLES_DEPTH + 1];
     for (int i = 0; i < TABLES_DEPTH; i++) {
+        max_frame_index++;
         framesNotEvict[i] = address_first;
         uint64_t current_mini_word =
                 (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * i))
@@ -114,25 +115,30 @@ int VMread(uint64_t virtualAddress, word_t* value) {
         //TODO: put zero in the table parents in case of taking the frame
 
         if (address_next == 0) {
-            address_first = find_empty_frame(address_first, 0,
+            address_next = find_empty_frame(0, i,
                                              &max_frame_index, &min_cyclic_distance,
                                              virtualAddress, 0, &minFrame,
                                              size_of_mini_address, &pageEvictIndex, 0, 0);
 
-            if (address_first == -1 && max_frame_index + 1 < NUM_FRAMES) {
-                address_first = max_frame_index + 1;
-            } else if (address_first == -1) {
-                address_first = minFrame;
-                PMevict(address_first, pageEvictIndex);
+            if (address_next == -1 && max_frame_index + 1 < NUM_FRAMES) {
+                address_next = max_frame_index + 1;
+            } else if (address_next == -1) {
+                address_next = minFrame;
+                PMevict(address_next, pageEvictIndex);
             }
-            address_next = address_first;
+            //address_next = address_first;
             //swap out the frame
-            PMrestore(address_first, pageIndex);
+            PMrestore(address_next, pageIndex);
+            for (int k = 0; k < (1L <<  OFFSET_WIDTH); k++) {
+                PMwrite(address_next*PAGE_SIZE +k, 0);
+            }
+            PMwrite(address_first*PAGE_SIZE +current_mini_word, address_next);
+            address_first = address_next;
             break;
         }
     }
 
-    finish_address = address_next;
+    finish_address = address_first;
     uint64_t offset_mini_word =
             (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * TABLES_DEPTH))
              & ~(~0 << (size_of_mini_address + 1))); //msb
@@ -149,52 +155,59 @@ int VMread(uint64_t virtualAddress, word_t* value) {
  * address for any reason)
  */
 int VMwrite(uint64_t virtualAddress, word_t value) {
-    uint64_t virtual_address_no_offset = VIRTUAL_ADDRESS_WIDTH - OFFSET_WIDTH;
-    uint64_t size_of_mini_address = virtual_address_no_offset / TABLES_DEPTH;
-    uint64_t pageIndex =
-            (virtualAddress >> OFFSET_WIDTH); //msb
+  uint64_t virtual_address_no_offset = VIRTUAL_ADDRESS_WIDTH - OFFSET_WIDTH;
+  uint64_t size_of_mini_address = virtual_address_no_offset / TABLES_DEPTH;
+  uint64_t pageIndex =
+      (virtualAddress >> OFFSET_WIDTH); //msb
 
-    word_t address_first = 0;
-    word_t address_next;
-    word_t finish_address;
-    word_t minFrame = 0;
-    uint64_t pageEvictIndex = 0;
-    int max_frame_index = -1;
-    uint64_t min_cyclic_distance = NUM_PAGES;
-    uint64_t framesNotEvict[TABLES_DEPTH + 1];
-    for (int i = 0; i < TABLES_DEPTH; i++) {
-        framesNotEvict[i] = address_first;
-        uint64_t current_mini_word =
-                (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * i))
-                 & ~(~0 << (size_of_mini_address + 1))); //msb
-        PMread((address_first * PAGE_SIZE) + current_mini_word, &address_next);
+  word_t address_first = 0;
+  word_t address_next = 0;
+  word_t finish_address;
+  word_t minFrame = 0;
+  uint64_t pageEvictIndex = 0;
+  int max_frame_index = 0;
+  uint64_t min_cyclic_distance = NUM_PAGES;
+  uint64_t framesNotEvict[TABLES_DEPTH + 1];
+  for (int i = 0; i < TABLES_DEPTH; i++) {
+      max_frame_index++;
+      framesNotEvict[i] = address_first;
+      uint64_t current_mini_word =
+          (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * i))
+           & ~(~0 << (size_of_mini_address + 1))); //msb
+      PMread((address_first * PAGE_SIZE) + current_mini_word, &address_next);
 
-        //framesNotEvict[i] = address_first; //TODO: you can't delete your parents
-        //TODO: put zero in the table parents in case of taking the frame
+      //framesNotEvict[i] = address_first; //TODO: you can't delete your parents
+      //TODO: put zero in the table parents in case of taking the frame
 
-        if (address_next == 0) {
-            address_first = find_empty_frame(address_first, 0,
-                                             &max_frame_index, &min_cyclic_distance,
-                                             virtualAddress, 0, &minFrame,
-                                             size_of_mini_address, &pageEvictIndex, 0, 0);
+      if (address_next == 0) {
+          address_next = find_empty_frame(0, i,
+                                          &max_frame_index, &min_cyclic_distance,
+                                          virtualAddress, 0, &minFrame,
+                                          size_of_mini_address, &pageEvictIndex, 0, 0);
 
-            if (address_first == -1 && max_frame_index + 1 < NUM_FRAMES) {
-                address_first = max_frame_index + 1;
-            } else if (address_first == -1) {
-                address_first = minFrame;
-                PMevict(address_first, pageEvictIndex);
+          if (address_next == -1 && max_frame_index + 1 < NUM_FRAMES) {
+              address_next = max_frame_index + 1;
+            } else if (address_next == -1) {
+              address_next = minFrame;
+              PMevict(address_next, pageEvictIndex);
             }
-            address_next = address_first;
-            //swap out the frame
-            PMrestore(address_first, pageIndex);
-            break;
+          //address_next = address_first;
+          //swap out the frame
+          PMrestore(address_next, pageIndex);
+          for (int k = 0; k < (1L <<  OFFSET_WIDTH); k++) {
+              PMwrite(address_next*PAGE_SIZE +k, 0);
+            }
+          PMwrite(address_first*PAGE_SIZE +current_mini_word, address_next);
+          address_first = address_next;
+          break;
         }
+        address_first =address_next;
     }
 
-    finish_address = address_next;
-    uint64_t offset_mini_word =
-            (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * TABLES_DEPTH))
-             & ~(~0 << (size_of_mini_address + 1))); //msb
+  finish_address = address_first;
+  uint64_t offset_mini_word =
+      (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * TABLES_DEPTH))
+       & ~(~0 << (size_of_mini_address + 1))); //msb
     PMwrite((finish_address * PAGE_SIZE) + offset_mini_word, value);
     return 1;
     //PMwrite((finish_address * PAGE_SIZE) + offset_mini_word, value);
