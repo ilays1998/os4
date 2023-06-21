@@ -1,6 +1,6 @@
 #pragma once
 
-#include "testd/YaaraConstants.h"
+#include "MemoryConstants.h"
 
 /*
  * Reads an integer from the given physical address and puts it in 'value'.
