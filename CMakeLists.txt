@@ -9,6 +9,6 @@ add_executable(os4
         "MemoryConstants.h"
         "PhysicalMemory.cpp"
         "PhysicalMemory.h"
-        "SimpleTest.cpp"
+        "testd/YaaraTest.cpp"
         "VirtualMemory.h"
         "VirtualMemory.cpp")
