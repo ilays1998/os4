@@ -238,7 +238,9 @@ int VMwrite(uint64_t virtualAddress, word_t value) {
     }
   int cur_depth = 0;
   for (int i = 0; i < TABLES_DEPTH; i++) {
+      min_cyclic_distance = NUM_PAGES;
       fatherNotEvict = address_first;
+      framesNotEvict[i] = address_first;
 //        uint64_t current_mini_word =
 //                (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * (i+1))
 //                 & ~(~0 << (size_of_mini_address + 1)))); //msb
@@ -260,6 +262,7 @@ int VMwrite(uint64_t virtualAddress, word_t value) {
           else if (address_next == -1 && max_frame_index + 1 < NUM_FRAMES) {
               address_next = ++max_frame_index;
             } else if (address_next == -1) {
+
               address_next = minFrame;
               PMevict(address_next, pageEvictIndex);
               PMwrite(father_address, 0);
