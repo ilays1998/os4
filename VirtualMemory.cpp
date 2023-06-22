@@ -30,7 +30,7 @@ int cyclic_distance(int virtualAddress, int currentPage) {
 }
 
 uint64_t bitwiseAddTheNewFrameAddressBit(uint64_t pageByBit, word_t frame_address, int depth) {
-    uint64_t raleventBits = (frame_address << (depth* OFFSET_WIDTH) );
+    uint64_t raleventBits = (frame_address << ((TABLES_DEPTH -depth - 1)* OFFSET_WIDTH) );
     return (pageByBit | raleventBits);
 }
 word_t find_empty_frame(word_t frame_address, int depth, int *max_frame_index, uint64_t *min_cyclic_distance,
@@ -119,7 +119,8 @@ int count_tree_size(word_t frame, int depth) {
             sum += 1 + count_tree_size(tmp, depth + 1);
         }
         else if (tmp != 0 && depth == TABLES_DEPTH - 1)
-            return 1;
+            //TODO: count the not zero
+            sum += 1;
     }
     return sum;
 }
@@ -132,79 +133,85 @@ int count_tree_size(word_t frame, int depth) {
  * address for any reason)
  */
 int VMread(uint64_t virtualAddress, word_t* value) {
-    uint64_t virtual_address_no_offset_length = VIRTUAL_ADDRESS_WIDTH - OFFSET_WIDTH;
-    uint64_t size_of_mini_address = virtual_address_no_offset_length / TABLES_DEPTH;
-    uint64_t pageIndex =
-            (virtualAddress >> OFFSET_WIDTH); //msb
+  uint64_t virtual_address_no_offset_length = VIRTUAL_ADDRESS_WIDTH - OFFSET_WIDTH;
+  uint64_t size_of_mini_address = virtual_address_no_offset_length / TABLES_DEPTH;
+  uint64_t pageIndex =
+      (virtualAddress >> OFFSET_WIDTH); //msb
 
-    word_t address_first = 0;
-    word_t address_next = 0;
-    word_t finish_address;
-    word_t minFrame = 0;
-    uint64_t pageEvictIndex = 0;
-    word_t father_address = 0;
-    int max_frame_index = count_tree_size(0, 0);
-    uint64_t min_cyclic_distance = NUM_PAGES;
-    word_t framesNotEvict[TABLES_DEPTH];
-    word_t fatherNotEvict = 0;
-    for (int i =0; i < TABLES_DEPTH; i++) {
-        framesNotEvict[i] = 0;
+  word_t address_first = 0;
+  word_t address_next = 0;
+  word_t finish_address;
+  word_t minFrame = 0;
+  uint64_t pageEvictIndex = 0;
+  word_t father_address = 0;
+  int max_frame_index = count_tree_size(0, 0);
+  uint64_t min_cyclic_distance = NUM_PAGES;
+  word_t framesNotEvict[TABLES_DEPTH];
+  word_t fatherNotEvict = 0;
+  for (int i =0; i < TABLES_DEPTH; i++) {
+      framesNotEvict[i] = 0;
     }
-    int cur_depth = 0;
-    for (int i = 0; i < TABLES_DEPTH; i++) {
-        min_cyclic_distance = NUM_PAGES;
-        fatherNotEvict = address_first;
-        framesNotEvict[i] = address_first;
+  int cur_depth = 0;
+  for (int i = 0; i < TABLES_DEPTH; i++) {
+      min_cyclic_distance = NUM_PAGES;
+      fatherNotEvict = address_first;
+      framesNotEvict[i] = address_first;
 //        uint64_t current_mini_word =
 //                (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (size_of_mini_address * (i+1))
 //                 & ~(~0 << (size_of_mini_address + 1)))); //msb
-        uint64_t current_mini_word = (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (OFFSET_WIDTH + (i * size_of_mini_address)))) & ((1L <<  OFFSET_WIDTH) - 1);
-        PMread((address_first * PAGE_SIZE) + current_mini_word, &address_next);
+      uint64_t current_mini_word = (virtualAddress >> (VIRTUAL_ADDRESS_WIDTH - (OFFSET_WIDTH + (i * size_of_mini_address)))) & ((1L <<  OFFSET_WIDTH) - 1);
+      PMread((address_first * PAGE_SIZE) + current_mini_word, &address_next);
 
-        //framesNotEvict[i] = address_first; //TODO: you can't delete your parents
-        //TODO: put zero in the table parents in case of taking the frame
+      //framesNotEvict[i] = address_first; //TODO: you can't delete your parents
+      //TODO: put zero in the table parents in case of taking the frame
 
-        if (address_next == 0) {
-            address_next = find_empty_frame(0, 0,
-                                            &max_frame_index, &min_cyclic_distance,
-                                            (virtualAddress >> OFFSET_WIDTH), 0, &minFrame,
-                                            size_of_mini_address, &pageEvictIndex, 0, 0, framesNotEvict,
-                                            &father_address, fatherNotEvict);
-            if (address_next != -1) {
-                PMwrite(address_first*PAGE_SIZE+ current_mini_word, address_next);
+      if (address_next == 0) {
+          address_next = find_empty_frame(0, 0,
+                                          &max_frame_index, &min_cyclic_distance,
+                                          (virtualAddress >> OFFSET_WIDTH), 0, &minFrame,
+                                          size_of_mini_address, &pageEvictIndex, 0, 0, framesNotEvict,
+                                          &father_address, fatherNotEvict);
+          if (address_next != -1) {
+              PMwrite(address_first*PAGE_SIZE+ current_mini_word, address_next);
             }
-            else if (address_next == -1 && max_frame_index + 1 < NUM_FRAMES) {
-                address_next = ++max_frame_index;
+          else if (address_next == -1 && max_frame_index + 1 < NUM_FRAMES) {
+              address_next = ++max_frame_index;
             } else if (address_next == -1) {
 
-                address_next = minFrame;
-                PMevict(address_next, pageEvictIndex);
-                PMwrite(father_address, 0);
-                cur_depth = -1;
-                //PMwrite(address_first * PAGE_SIZE + current_mini_word, address_next);
+              address_next = minFrame;
+              PMevict(address_next, pageEvictIndex);
+              PMwrite(father_address, 0);
+              cur_depth = -1;
+              //PMwrite(address_first * PAGE_SIZE + current_mini_word, address_next);
 //                for (int k = 0; k < (1L <<  OFFSET_WIDTH); k++) {
 //                    PMwrite(address_next* PAGE_SIZE + k, 0);
 //                }
             }
-            //address_next = address_first;
-            //swap out the frame
-            if (i == TABLES_DEPTH - 1){
-                PMrestore(address_next, pageIndex);
+          //address_next = address_first;
+          //swap out the frame
+          if (i == TABLES_DEPTH - 1){
+              PMrestore(address_next, pageIndex);
+              PMwrite(address_first*PAGE_SIZE +current_mini_word, address_next);
+              address_first = address_next;
+
+              address_first = address_next;
+              cur_depth++;
+              break;
             }
-            for (int k = 0; k < (1L <<  OFFSET_WIDTH); k++) {
-                PMwrite(address_next*PAGE_SIZE +k, 0);
+          for (int k = 0; k < (1L <<  OFFSET_WIDTH); k++) {
+              PMwrite(address_next*PAGE_SIZE +k, 0);
             }
-            PMwrite(address_first*PAGE_SIZE +current_mini_word, address_next);
-            address_first = address_next;
+          PMwrite(address_first*PAGE_SIZE +current_mini_word, address_next);
+          address_first = address_next;
         }
-        address_first = address_next;
-        cur_depth++;
+      address_first = address_next;
+      cur_depth++;
     }
 
-    finish_address = address_first;
-    uint64_t offset_mini_word =
-            (virtualAddress >> (0)
-             & ~(~0 << (OFFSET_WIDTH))); //TODO:check
+  finish_address = address_first;
+  uint64_t offset_mini_word =
+      (virtualAddress >> (0)
+       & ~(~0 << (OFFSET_WIDTH))); //TODO:check
     PMread((finish_address * PAGE_SIZE) + offset_mini_word, value);
     return 1;
 }
@@ -276,6 +283,12 @@ int VMwrite(uint64_t virtualAddress, word_t value) {
           //swap out the frame
           if (i == TABLES_DEPTH - 1){
               PMrestore(address_next, pageIndex);
+              PMwrite(address_first*PAGE_SIZE +current_mini_word, address_next);
+              address_first = address_next;
+
+            address_first = address_next;
+            cur_depth++;
+              break;
             }
           for (int k = 0; k < (1L <<  OFFSET_WIDTH); k++) {
               PMwrite(address_next*PAGE_SIZE +k, 0);
